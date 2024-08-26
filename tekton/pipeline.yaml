@@ -5,44 +5,52 @@ metadata:
 spec:
   params:
     - name: repo-url
+      type: string
     - name: branch
+      type: string
       default: main
     - name: build-image
+      type: string
   workspaces:
     - name: pipeline-workspace
   tasks:
     - name: clone
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
       taskRef:
         name: git-clone
+        kind: ClusterTask
       params:
         - name: url
-          value: $(params.repo-url)
+          value: "$(params.repo-url)"
         - name: revision
-          value: $(params.branch)
-      workspaces:
-        - name: output
-          workspace: pipeline-workspace
+          value: "$(params.branch)"
 
     - name: lint
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
       taskRef:
         name: flake8
+        kind: ClusterTask
       params:
         - name: image
           value: "python:3.9-slim"
         - name: args
           value: ["--count", "--max-complexity=10", "--max-line-length=127", "--statistics"]
-      workspaces:
-        - name: source
-          workspace: pipeline-workspace
       runAfter:
         - clone
 
     - name: tests
-      taskRef:
-        name: test-task
       workspaces:
         - name: source
           workspace: pipeline-workspace
+      taskRef:
+        name: pytest
+        kind: ClusterTask
+      runAfter:
+        - clone
 
     - name: build
       workspaces:
@@ -59,10 +67,20 @@ spec:
         - lint
 
     - name: deploy
+      workspaces:
+        - name: manifest-dir
+          workspace: pipeline-workspace
       taskRef:
-        name: deploy-task
+        name: openshift-client
+        kind: ClusterTask
       params:
-        - name: image
-          value: $(params.build-image)
-        - name: namespace
-          value: my-openshift-namespace
+        - name: SCRIPT
+          value: |
+            echo "Updating manifest..."
+            sed -i "s|IMAGE_NAME_HERE|$(params.build-image)|g" deploy/deployment.yaml
+            cat deploy/deployment.yaml
+            echo "Deploying to OpenShift..."
+            oc apply -f deploy/
+            oc get pods -l app=accounts
+      runAfter:
+        - build

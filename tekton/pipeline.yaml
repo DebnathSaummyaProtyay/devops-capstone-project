@@ -5,11 +5,9 @@ metadata:
 spec:
   params:
     - name: repo-url
-      description: The repository URL
     - name: branch
-      description: The branch to clone
-    - name: image
-      description: The image URL to push to
+      default: main
+    - name: build-image
   workspaces:
     - name: pipeline-workspace
   tasks:
@@ -32,25 +30,14 @@ spec:
         - name: image
           value: "python:3.9-slim"
         - name: args
-          value: ["--count","--max-complexity=10","--max-line-length=127","--statistics"]
+          value: ["--count", "--max-complexity=10", "--max-line-length=127", "--statistics"]
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
       runAfter:
         - clone
 
     - name: tests
-      workspaces:
-        - name: source
-          workspace: pipeline-workspace
-      taskRef:
-        name: nose
-      params:
-      - name: database_uri
-        value: "sqlite:///test.db"
-      - name: args
-        value: "-v --with-spec --spec-color"
-      runAfter:
-        - clone
-
-    - name: test
       taskRef:
         name: test-task
       workspaces:
@@ -58,20 +45,24 @@ spec:
           workspace: pipeline-workspace
 
     - name: build
-      taskRef:
-        name: build-task
-      params:
-        - name: image
-          value: $(params.image)
       workspaces:
         - name: source
           workspace: pipeline-workspace
+      taskRef:
+        name: buildah
+        kind: ClusterTask
+      params:
+        - name: IMAGE
+          value: "$(params.build-image)"
+      runAfter:
+        - tests
+        - lint
 
     - name: deploy
       taskRef:
         name: deploy-task
       params:
         - name: image
-          value: $(params.image)
+          value: $(params.build-image)
         - name: namespace
           value: my-openshift-namespace
